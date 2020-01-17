@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "md410_2020_conv_common"
+version = "0.1.0"
+description = "Common libraries for applications related to the Lions MD410 2020 Convention"
+authors = ["Kim van Wyk <kimv@sahomeloans.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+black = "^19.10b0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
