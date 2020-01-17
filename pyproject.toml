@@ -2,7 +2,9 @@
 name = "md410_2020_conv_common"
 version = "0.1.0"
 description = "Common libraries for applications related to the Lions MD410 2020 Convention"
-authors = ["Kim van Wyk <kimv@sahomeloans.com>"]
+authors = ["Kim van Wyk <vanwykk@gmail.com"]
+repository = "https://gitlab.com/md410_2020_conv/md410_2020_conv_common"
+readme = "readme.md" 
 
 [tool.poetry.dependencies]
 python = "^3.7"
