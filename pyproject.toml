@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "md410_2020_conv_common"
-version = "0.3.0"
+version = "0.4.0"
 description = "Common libraries for applications related to the Lions MD410 2020 Convention"
 authors = ["Kim van Wyk <vanwykk@gmail.com>"]
 repository = "https://gitlab.com/md410_2020_conv/md410_2020_conv_common"

@@ -29,6 +29,9 @@ class Registree(object):
     email = attr.ib()
     title = attr.ib(default=None)
 
+    def __attrs_post_init__(self):
+        self.titled_first_names = f"{self.title if self.title else " "}{self.first_names.strip()}
+        
 @attr.s
 class DB(object):
     """ Handle postgres database interaction
