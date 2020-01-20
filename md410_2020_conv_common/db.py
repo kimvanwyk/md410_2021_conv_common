@@ -27,7 +27,7 @@ class Registree(object):
     last_name = attr.ib()
     cell = attr.ib()
     email = attr.ib()
-
+    title = attr.ib(default=None)
 
 @attr.s
 class DB(object):
@@ -58,7 +58,7 @@ class DB(object):
         tr = self.tables["registree"]
         res = self.engine.execute(
             sa.select(
-                [tr.c.reg_num, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email],
+                [tr.c.reg_num, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email, tr.c.title],
                 tr.c.reg_num.in_(self.reg_nums),
             )
         ).fetchall()
