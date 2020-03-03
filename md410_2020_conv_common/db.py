@@ -19,6 +19,14 @@ TABLES = {
     "payment": ("md410_2020_conv", "payment"),
 }
 
+COSTS = {
+    "full_regs": 1285,
+    "banquets": 500,
+    "conventions": 400,
+    "themes": 450,
+    "pins": 55,
+}
+
 
 @attr.s
 class Registree(object):
@@ -28,23 +36,34 @@ class Registree(object):
     cell = attr.ib()
     email = attr.ib()
     title = attr.ib(default=None)
+    full_regs = attr.ib(default=0)
+    banquets = attr.ib(default=0)
+    conventions = attr.ib(default=0)
+    themes = attr.ib(default=0)
+    pins = attr.ib(default=0)
+    payments = attr.ib(default=0)
+    titled_first_names = attr.ib(init=False)
+    paid_in_full = attr.ib(init=False)
 
     def __attrs_post_init__(self):
         if self.title:
             t = f"{self.title} "
         else:
             t = ""
-        self.titled_first_names = f'{t}{self.first_names.strip()}'
-        
+        self.titled_first_names = f"{t}{self.first_names.strip()}"
+        owed = sum([v * getattr(self, k, 0) for (k, v) in COSTS.items()])
+        self.paid_in_full = self.payments >= owed
+
+
 @attr.s
 class DB(object):
     """ Handle postgres database interaction
     """
 
-    host = attr.ib(default=os.getenv('PGHOST', "localhost"))
-    port = attr.ib(default=os.getenv('PGPORT', 5432))
-    user = attr.ib(default=os.getenv('PGUSER', "postgres"))
-    password = attr.ib(default=os.getenv('PGPASSWORD'))
+    host = attr.ib(default=os.getenv("PGHOST", "localhost"))
+    port = attr.ib(default=os.getenv("PGPORT", 5432))
+    user = attr.ib(default=os.getenv("PGUSER", "postgres"))
+    password = attr.ib(default=os.getenv("PGPASSWORD"))
     dbname = attr.ib(default="postgres")
     debug = attr.ib(default=False)
 
@@ -65,7 +84,14 @@ class DB(object):
         tr = self.tables["registree"]
         res = self.engine.execute(
             sa.select(
-                [tr.c.reg_num, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email, tr.c.title],
+                [
+                    tr.c.reg_num,
+                    tr.c.first_names,
+                    tr.c.last_name,
+                    tr.c.cell,
+                    tr.c.email,
+                    tr.c.title,
+                ],
                 tr.c.reg_num.in_(self.reg_nums),
             )
         ).fetchall()
@@ -74,16 +100,57 @@ class DB(object):
             registrees.append(Registree(*r))
         return registrees
 
-    def get_all_registrees(self):
+    def get_all_registrees(self, reg_nums=None):
         tr = self.tables["registree"]
-        res = self.engine.execute(
-            sa.select(
-                [tr.c.reg_num, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email]
-            )
-        ).fetchall()
+        tfr = self.tables["full_reg"]
+        tpr = self.tables["partial_reg"]
+        tpi = self.tables["pins"]
+        tpy = self.tables["payment"]
+
+        query = sa.select(
+            [tr.c.reg_num, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email]
+        )
+        if reg_nums:
+            query = query.where(tr.c.reg_num.in_(reg_nums))
+        res = self.engine.execute(query).fetchall()
         registrees = []
         for r in res:
-            registrees.append(Registree(*r))
+            d = dict(r)
+            try:
+                d["full_regs"] = self.engine.execute(
+                    tfr.select(whereclause=tfr.c.reg_num == d["reg_num"])
+                ).fetchone()[1]
+            except Exception:
+                pass
+            try:
+                partial = self.engine.execute(
+                    tpr.select(whereclause=tpr.c.reg_num == d["reg_num"])
+                ).fetchone()
+                d["banquets"] = partial["banquet_quantity"]
+                d["conventions"] = partial["convention_quantity"]
+                d["themes"] = partial["theme_quantity"]
+            except Exception:
+                pass
+
+            try:
+                d["pins"] = self.engine.execute(
+                    tpi.select(whereclause=tpi.c.reg_num == d["reg_num"])
+                ).fetchone()[1]
+            except Exception:
+                pass
+
+            try:
+                d["payments"] = sum(
+                    [
+                        p.amount
+                        for p in self.engine.execute(
+                            tpy.select(whereclause=tpy.c.reg_num == d["reg_num"])
+                        ).fetchall()
+                    ]
+                )
+            except Exception:
+                pass
+            registrees.append(Registree(**d))
         return registrees
 
     def set_reg_nums(self, reg_num):
