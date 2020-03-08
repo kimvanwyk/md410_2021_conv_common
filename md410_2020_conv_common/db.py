@@ -35,6 +35,8 @@ class Registree(object):
     last_name = attr.ib()
     cell = attr.ib()
     email = attr.ib()
+    is_lion = attr.ib()
+    club = attr.ib(default=None)
     title = attr.ib(default=None)
     full_regs = attr.ib(default=0)
     banquets = attr.ib(default=0)
@@ -106,9 +108,10 @@ class DB(object):
         tpr = self.tables["partial_reg"]
         tpi = self.tables["pins"]
         tpy = self.tables["payment"]
+        tc = self.tables["club"]
 
         query = sa.select(
-            [tr.c.reg_num, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email]
+            [tr.c.reg_num, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email, tr.c.is_lion]
         )
         if reg_nums:
             query = query.where(tr.c.reg_num.in_(reg_nums))
@@ -116,6 +119,13 @@ class DB(object):
         registrees = []
         for r in res:
             d = dict(r)
+            if r.is_lion:
+                try:
+                    d["club"] = self.engine.execute(
+                        tc.select(whereclause=tc.c.reg_num == d["reg_num"])
+                    ).fetchone()[1]
+                except Exception:
+                    pass
             try:
                 d["full_regs"] = self.engine.execute(
                     tfr.select(whereclause=tfr.c.reg_num == d["reg_num"])
