@@ -1,4 +1,5 @@
 from decimal import Decimal, getcontext
+from datetime import datetime
 
 import attr
 import sqlalchemy as sa
@@ -71,7 +72,8 @@ class DB(object):
 
     def __attrs_post_init__(self):
         self.engine = sa.create_engine(
-            f"postgresql+psycopg2://{self.user}:{self.password}@{self.host}:{self.port}/{self.dbname}"
+            f"postgresql+psycopg2://{self.user}:{self.password}@{self.host}:{self.port}/{self.dbname}",
+            echo=self.debug
         )
         md = sa.MetaData()
         md.bind = self.engine
@@ -94,7 +96,9 @@ class DB(object):
                     tr.c.email,
                     tr.c.title,
                 ],
-                tr.c.reg_num.in_(self.reg_nums),
+                whereclause=sa.and_(
+                    tr.c.reg_num.in_(self.reg_nums), tr.c.cancellation_timestamp == None
+                ),
             )
         ).fetchall()
         registrees = []
@@ -111,10 +115,20 @@ class DB(object):
         tc = self.tables["club"]
 
         query = sa.select(
-            [tr.c.reg_num, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email, tr.c.is_lion]
+            [
+                tr.c.reg_num,
+                tr.c.first_names,
+                tr.c.last_name,
+                tr.c.cell,
+                tr.c.email,
+                tr.c.is_lion,
+            ]
         )
+
         if reg_nums:
-            query = query.where(tr.c.reg_num.in_(reg_nums))
+            query = query.where(sa.and_(tr.c.reg_num.in_(reg_nums), tr.c.cancellation_timestamp == None))
+        else:
+            query = query.where(tr.c.cancellation_timestamp == None)
         res = self.engine.execute(query).fetchall()
         registrees = []
         for r in res:
@@ -240,6 +254,21 @@ class DB(object):
         if registree.pins:
             vals = {"reg_num": registree.reg_num, "quantity": registree.pins}
             self.engine.execute(tp.insert(vals))
+
+    def cancel_registration(self, reg_nums):
+        tr = self.tables["registree"]
+        trp = self.tables["registree_pair"]
+        tc = self.tables["club"]
+        tpp = self.tables["partner_program"]
+        tfr = self.tables["full_reg"]
+        tpr = self.tables["partial_reg"]
+        tp = self.tables["pins"]
+        for t in (tc, tfr, tpp, tpr, tp):
+            self.engine.execute(t.delete(t.c.reg_num.in_(reg_nums)))
+        self.engine.execute(trp.delete(trp.c.first_reg_num.in_(reg_nums)))
+
+        dt = datetime.now()
+        self.engine.execute(tr.update(tr.c.reg_num.in_(reg_nums), {'cancellation_timestamp':dt}))
 
     def pair_registrees(self, first_reg_num, second_reg_num):
         tp = self.tables["registree_pair"]
