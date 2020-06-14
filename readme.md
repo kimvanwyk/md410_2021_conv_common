@@ -4,4 +4,4 @@ Common libraries for applications related to the [Lions Multiple District 410 20
 
 # Associated Applications
 
-See [this Gitlab group](https://gitlab.com/md410_2020_conv) for assocatiated applications.
+See [this Gitlab group](https://gitlab.com/md410_2020_conv) for associated applications.
