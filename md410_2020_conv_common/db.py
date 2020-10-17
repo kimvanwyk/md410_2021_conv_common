@@ -33,31 +33,68 @@ COSTS = {
     "pins": 55,
 }
 
+@attr.s
+class RegistreeSet(object):
+    registration = attr.ib()
+    payment = attr.ib()
+    first = attr.ib()
+    second = attr.ib(default=None)
 
 @attr.s
 class Registree(object):
     reg_num = attr.ib()
+    timestamp = attr.ib()
     first_names = attr.ib()
     last_name = attr.ib()
     cell = attr.ib()
     email = attr.ib()
-    is_lion = attr.ib()
-    club = attr.ib(default=None)
-    title = attr.ib(default=None)
-    full_regs = attr.ib(default=0)
-    banquets = attr.ib(default=0)
-    conventions = attr.ib(default=0)
-    themes = attr.ib(default=0)
-    pins = attr.ib(default=0)
-    payments = attr.ib(default=0)
-    titled_first_names = attr.ib(init=False)
-    paid_in_full = attr.ib(init=False)
+    dietary = attr.ib()
+    disability = attr.ib()
+    name_badge = attr.ib()
+    title = attr.ib()
+    first_mdc = attr.ib()
+    mjf_lunch = attr.ib()
 
     def __attrs_post_init__(self):
+        if not self.title:
+            self.title = None
         t = f"{self.title} " if self.title else ""
         self.titled_first_names = f"{t}{self.first_names.strip()}"
-        owed = sum(v * getattr(self, k, 0) for (k, v) in COSTS.items())
-        self.paid_in_full = self.payments >= owed
+        # owed = sum(v * getattr(self, k, 0) for (k, v) in COSTS.items())
+        # self.paid_in_full = self.payments >= owed
+
+        self.auto_name_badge = False
+        if not self.name_badge:
+            self.name_badge = f"{self.first_names} {self.last_name}"
+            self.auto_name_badge = True
+
+@attr.s
+class LionRegistree(Registree):
+    club = attr.ib()
+    district = attr.ib()
+
+    def __attrs_post_init__(self):
+        self.lion = True
+        super().__attrs_post_init__()
+
+
+@attr.s
+class NonLionRegistree(Registree):
+    partner_program = attr.ib(default=0)
+
+    def __attrs_post_init__(self):
+        self.lion = False
+        super().__attrs_post_init__()
+
+class Extras(object):
+    pins = attr.ib()
+
+    def __attrs_post_init__(self):
+        self.attrs = ("pins",)
+
+    def __bool__(self):
+        return bool(sum([getattr(self, attr) for attr in self.attrs]))
+
 
 
 @attr.s
@@ -85,15 +122,26 @@ class DB(object):
     def get_registrees(self, reg_num):
         self.set_reg_nums(reg_num)
         tr = self.tables["registree"]
+        tc = self.tables["club"]
+        tp = self.tables["partner_program"]
         res = self.engine.execute(
             sa.select(
-                [tr.c.reg_num, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email, tr.c.title,],
+                [tr.c.reg_num, tr.c.timestamp, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email, tr.c.dietary, tr.c.disability, tr.c.name_badge, tr.c.title, tr.c.first_mdc, tr.c.mjf_lunch, tr.c.is_lion],
                 whereclause=sa.and_(tr.c.reg_num.in_(self.reg_nums), tr.c.cancellation_timestamp == None),
             )
         ).fetchall()
         registrees = []
         for r in res:
-            registrees.append(Registree(*r))
+            vals = r[:-1]
+            if r.is_lion:
+                details = self.engine.execute(sa.select([tc.c.club, tc.c.district], tc.c.reg_num == r.reg_num)).fetchone()
+                cls = LionRegistree
+            else:
+                details = self.engine.execute(sa.select([tp.c.quantity], tp.c.reg_num == r.reg_num)).fetchone()
+                if not details:
+                    details = (0,)
+                cls = NonLionRegistree
+            registrees.append(cls(*(vals + details[:])))
         return registrees
 
     def get_all_registrees(self, reg_nums=None):
