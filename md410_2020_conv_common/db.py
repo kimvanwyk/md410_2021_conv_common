@@ -35,10 +35,27 @@ COSTS = {
 
 @attr.s
 class RegistreeSet(object):
-    registration = attr.ib()
+    events = attr.ib()
     payment = attr.ib()
-    first = attr.ib()
-    second = attr.ib(default=None)
+    extras = attr.ib()
+    registrees = attr.ib()
+
+@attr.s
+class Events(object):
+    full = attr.ib()
+    banquet = attr.ib()
+    convention = attr.ib()
+    theme = attr.ib()
+
+@attr.s
+class Extras(object):
+    pins = attr.ib()
+
+    def __attrs_post_init__(self):
+        self.attrs = ("pins",)
+
+    def __bool__(self):
+        return bool(sum([getattr(self, attr) for attr in self.attrs]))
 
 @attr.s
 class Registree(object):
@@ -86,17 +103,6 @@ class NonLionRegistree(Registree):
         self.lion = False
         super().__attrs_post_init__()
 
-class Extras(object):
-    pins = attr.ib()
-
-    def __attrs_post_init__(self):
-        self.attrs = ("pins",)
-
-    def __bool__(self):
-        return bool(sum([getattr(self, attr) for attr in self.attrs]))
-
-
-
 @attr.s
 class DB(object):
     """ Handle postgres database interaction
@@ -123,7 +129,11 @@ class DB(object):
         self.set_reg_nums(reg_num)
         tr = self.tables["registree"]
         tc = self.tables["club"]
-        tp = self.tables["partner_program"]
+        tpp = self.tables["partner_program"]
+        tp = self.tables["pins"]
+        tfr = self.tables["full_reg"]
+        tpr = self.tables["partial_reg"]
+
         res = self.engine.execute(
             sa.select(
                 [tr.c.reg_num, tr.c.timestamp, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email, tr.c.dietary, tr.c.disability, tr.c.name_badge, tr.c.title, tr.c.first_mdc, tr.c.mjf_lunch, tr.c.is_lion],
@@ -137,12 +147,17 @@ class DB(object):
                 details = self.engine.execute(sa.select([tc.c.club, tc.c.district], tc.c.reg_num == r.reg_num)).fetchone()
                 cls = LionRegistree
             else:
-                details = self.engine.execute(sa.select([tp.c.quantity], tp.c.reg_num == r.reg_num)).fetchone()
+                details = self.engine.execute(sa.select([tpp.c.quantity], tp.c.reg_num == r.reg_num)).fetchone()
                 if not details:
                     details = (0,)
                 cls = NonLionRegistree
             registrees.append(cls(*(vals + details[:])))
-        return registrees
+
+        
+        events = Events(*([sum(r[0] for r in self.engine.execute(sa.select([tfr.c.quantity], tfr.c.reg_num.in_(self.reg_nums))).fetchall())] + [sum(e) for e in zip(*[p[:] for p in self.engine.execute(sa.select([tpr.c.banquet_quantity, tpr.c.convention_quantity, tpr.c.theme_quantity], tpr.c.reg_num.in_(self.reg_nums))).fetchall()])]))
+        extras = Extras(pins=sum(p[0] for p in self.engine.execute(sa.select([tp.c.quantity], tp.c.reg_num.in_(self.reg_nums))).fetchall()))
+       
+        return RegistreeSet(events, None, extras, registrees)
 
     def get_all_registrees(self, reg_nums=None):
         tr = self.tables["registree"]
