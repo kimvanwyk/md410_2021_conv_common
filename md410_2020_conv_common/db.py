@@ -50,13 +50,13 @@ class Events(object):
     banquet = attr.ib()
     convention = attr.ib()
     theme = attr.ib()
-    costs = attr.ib(default={"full": 1285, "banquet": 500, "conventions": 400, "themes": 450})
+    costs = attr.ib(default={"full": 1285, "banquet": 500, "convention": 400, "theme": 450})
 
-    # def __attrs_post_init__(self):
-    #     self.cost = sum(self.get_costs_per_item().values())
+    def __attrs_post_init__(self):
+        self.cost = sum(self.get_costs_per_item().values())
 
-    # def get_costs_per_item(self):
-    #     return {attr: self.costs[attr] * getattr(self, attr) for attr in self.attrs}
+    def get_costs_per_item(self):
+        return {attr: cost * getattr(self, attr) for (attr,cost) in self.costs.items()}
 
 @attr.s
 class Payment(object):
