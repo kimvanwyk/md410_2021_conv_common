@@ -40,12 +40,23 @@ class RegistreeSet(object):
     extras = attr.ib()
     registrees = attr.ib()
 
+    # def __attrs_post_init__(self):
+        # owed = sum(v * getattr(self, k, 0) for (k, v) in COSTS.items())
+        # self.paid_in_full = self.payments >= owed
+
 @attr.s
 class Events(object):
     full = attr.ib()
     banquet = attr.ib()
     convention = attr.ib()
     theme = attr.ib()
+    costs = attr.ib(default={"full": 1285, "banquet": 500, "conventions": 400, "themes": 450})
+
+    # def __attrs_post_init__(self):
+    #     self.cost = sum(self.get_costs_per_item().values())
+
+    # def get_costs_per_item(self):
+    #     return {attr: self.costs[attr] * getattr(self, attr) for attr in self.attrs}
 
 @attr.s
 class Payment(object):
@@ -55,12 +66,16 @@ class Payment(object):
 @attr.s
 class Extras(object):
     pins = attr.ib()
+    costs = attr.ib(default={"pins": 55})
 
     def __attrs_post_init__(self):
-        self.attrs = ("pins",)
+        self.cost = sum(self.get_costs_per_item().values())
+
+    def get_costs_per_item(self):
+        return {attr: cost * getattr(self, attr) for (attr,cost) in self.costs.items()}
 
     def __bool__(self):
-        return bool(sum([getattr(self, attr) for attr in self.attrs]))
+        return bool(sum([getattr(self, attr) for attr in self.costs.keys()]))
 
 @attr.s
 class Registree(object):
