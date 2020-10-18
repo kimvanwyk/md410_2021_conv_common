@@ -36,7 +36,7 @@ COSTS = {
 @attr.s
 class RegistreeSet(object):
     events = attr.ib()
-    payment = attr.ib()
+    payments = attr.ib()
     extras = attr.ib()
     registrees = attr.ib()
 
@@ -46,6 +46,11 @@ class Events(object):
     banquet = attr.ib()
     convention = attr.ib()
     theme = attr.ib()
+
+@attr.s
+class Payment(object):
+    timestamp = attr.ib()
+    amount = attr.ib()
 
 @attr.s
 class Extras(object):
