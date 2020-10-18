@@ -42,6 +42,7 @@ class RegistreeSet(object):
 
     def __attrs_post_init__(self):
         self.total_owed = self.events.cost + self.extras.cost
+        # self.paid_in_full = self.payments >= owed
 
 @attr.s
 class Events(object):
@@ -96,8 +97,6 @@ class Registree(object):
             self.title = None
         t = f"{self.title} " if self.title else ""
         self.titled_first_names = f"{t}{self.first_names.strip()}"
-        # owed = sum(v * getattr(self, k, 0) for (k, v) in COSTS.items())
-        # self.paid_in_full = self.payments >= owed
 
         self.auto_name_badge = False
         if not self.name_badge:
@@ -149,7 +148,7 @@ class DB(object):
         tr = self.tables["registree"]
         tc = self.tables["club"]
         tpp = self.tables["partner_program"]
-        tp = self.tables["pins"]
+        tpi = self.tables["pins"]
         tfr = self.tables["full_reg"]
         tpr = self.tables["partial_reg"]
 
@@ -166,7 +165,7 @@ class DB(object):
                 details = self.engine.execute(sa.select([tc.c.club, tc.c.district], tc.c.reg_num == r.reg_num)).fetchone()
                 cls = LionRegistree
             else:
-                details = self.engine.execute(sa.select([tpp.c.quantity], tp.c.reg_num == r.reg_num)).fetchone()
+                details = self.engine.execute(sa.select([tpp.c.quantity], tpp.c.reg_num == r.reg_num)).fetchone()
                 if not details:
                     details = (0,)
                 cls = NonLionRegistree
@@ -174,7 +173,7 @@ class DB(object):
 
         
         events = Events(*([sum(r[0] for r in self.engine.execute(sa.select([tfr.c.quantity], tfr.c.reg_num.in_(self.reg_nums))).fetchall())] + [sum(e) for e in zip(*[p[:] for p in self.engine.execute(sa.select([tpr.c.banquet_quantity, tpr.c.convention_quantity, tpr.c.theme_quantity], tpr.c.reg_num.in_(self.reg_nums))).fetchall()])]))
-        extras = Extras(pins=sum(p[0] for p in self.engine.execute(sa.select([tp.c.quantity], tp.c.reg_num.in_(self.reg_nums))).fetchall()))
+        extras = Extras(pins=sum(p[0] for p in self.engine.execute(sa.select([tpi.c.quantity], tpi.c.reg_num.in_(self.reg_nums))).fetchall()))
        
         return RegistreeSet(events, None, extras, registrees)
 
