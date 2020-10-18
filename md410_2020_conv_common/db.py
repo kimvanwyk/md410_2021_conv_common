@@ -147,10 +147,17 @@ class DB(object):
         self.set_reg_nums(reg_num)
         tr = self.tables["registree"]
         tc = self.tables["club"]
+        tpy = self.tables["payment"]
         tpp = self.tables["partner_program"]
         tpi = self.tables["pins"]
         tfr = self.tables["full_reg"]
         tpr = self.tables["partial_reg"]
+
+        events = Events(*([sum(r[0] for r in self.engine.execute(sa.select([tfr.c.quantity], tfr.c.reg_num.in_(self.reg_nums))).fetchall())] + [sum(e) for e in zip(*[p[:] for p in self.engine.execute(sa.select([tpr.c.banquet_quantity, tpr.c.convention_quantity, tpr.c.theme_quantity], tpr.c.reg_num.in_(self.reg_nums))).fetchall()])]))
+
+        payments = [Payment(p[0], p[1]) for p in self.engine.execute(sa.select([tpy.c.timestamp, tpy.c.amount], tpy.c.reg_num.in_(self.reg_nums))).fetchall()]
+        
+        extras = Extras(pins=sum(p[0] for p in self.engine.execute(sa.select([tpi.c.quantity], tpi.c.reg_num.in_(self.reg_nums))).fetchall()))
 
         res = self.engine.execute(
             sa.select(
@@ -171,11 +178,7 @@ class DB(object):
                 cls = NonLionRegistree
             registrees.append(cls(*(vals + details[:])))
 
-        
-        events = Events(*([sum(r[0] for r in self.engine.execute(sa.select([tfr.c.quantity], tfr.c.reg_num.in_(self.reg_nums))).fetchall())] + [sum(e) for e in zip(*[p[:] for p in self.engine.execute(sa.select([tpr.c.banquet_quantity, tpr.c.convention_quantity, tpr.c.theme_quantity], tpr.c.reg_num.in_(self.reg_nums))).fetchall()])]))
-        extras = Extras(pins=sum(p[0] for p in self.engine.execute(sa.select([tpi.c.quantity], tpi.c.reg_num.in_(self.reg_nums))).fetchall()))
-       
-        return RegistreeSet(events, None, extras, registrees)
+        return RegistreeSet(events, payments, extras, registrees)
 
     def get_all_registrees(self, reg_nums=None):
         tr = self.tables["registree"]
