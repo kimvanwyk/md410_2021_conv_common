@@ -40,9 +40,8 @@ class RegistreeSet(object):
     extras = attr.ib()
     registrees = attr.ib()
 
-    # def __attrs_post_init__(self):
-        # owed = sum(v * getattr(self, k, 0) for (k, v) in COSTS.items())
-        # self.paid_in_full = self.payments >= owed
+    def __attrs_post_init__(self):
+        self.total_owed = self.events.cost + self.extras.cost
 
 @attr.s
 class Events(object):
