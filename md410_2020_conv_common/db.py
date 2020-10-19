@@ -35,6 +35,7 @@ COSTS = {
 
 @attr.s
 class RegistreeSet(object):
+    reg_num = attr.ib()
     events = attr.ib()
     payments = attr.ib()
     extras = attr.ib()
@@ -42,7 +43,7 @@ class RegistreeSet(object):
 
     def __attrs_post_init__(self):
         self.total_owed = self.events.cost + self.extras.cost
-        # self.paid_in_full = self.payments >= owed
+        self.paid_in_full = sum(p.amount for p in self.payments) >= self.total_owed
 
 @attr.s
 class Events(object):
@@ -79,7 +80,6 @@ class Extras(object):
 
 @attr.s
 class Registree(object):
-    reg_num = attr.ib()
     timestamp = attr.ib()
     first_names = attr.ib()
     last_name = attr.ib()
@@ -144,7 +144,6 @@ class DB(object):
         self.reg_nums = []
 
     def get_registrees(self, reg_num):
-        self.set_reg_nums(reg_num)
         tr = self.tables["registree"]
         tc = self.tables["club"]
         tpy = self.tables["payment"]
@@ -153,32 +152,35 @@ class DB(object):
         tfr = self.tables["full_reg"]
         tpr = self.tables["partial_reg"]
 
-        events = Events(*([sum(r[0] for r in self.engine.execute(sa.select([tfr.c.quantity], tfr.c.reg_num.in_(self.reg_nums))).fetchall())] + [sum(e) for e in zip(*[p[:] for p in self.engine.execute(sa.select([tpr.c.banquet_quantity, tpr.c.convention_quantity, tpr.c.theme_quantity], tpr.c.reg_num.in_(self.reg_nums))).fetchall()])]))
+        partials = [sum(e) for e in zip(*[p[:] for p in self.engine.execute(sa.select([tpr.c.banquet_quantity, tpr.c.convention_quantity, tpr.c.theme_quantity], tpr.c.reg_num == reg_num)).fetchall()])]
+        if not partials:
+            partials = [0, 0, 0]
+        events = Events(*([sum(r[0] for r in self.engine.execute(sa.select([tfr.c.quantity], tfr.c.reg_num == reg_num)).fetchall())] + partials))
 
-        payments = [Payment(p[0], p[1]) for p in self.engine.execute(sa.select([tpy.c.timestamp, tpy.c.amount], tpy.c.reg_num.in_(self.reg_nums))).fetchall()]
+        payments = [Payment(p[0], p[1]) for p in self.engine.execute(sa.select([tpy.c.timestamp, tpy.c.amount], tpy.c.reg_num == reg_num)).fetchall()]
         
-        extras = Extras(pins=sum(p[0] for p in self.engine.execute(sa.select([tpi.c.quantity], tpi.c.reg_num.in_(self.reg_nums))).fetchall()))
+        extras = Extras(pins=sum(p[0] for p in self.engine.execute(sa.select([tpi.c.quantity], tpi.c.reg_num == reg_num)).fetchall()))
 
         res = self.engine.execute(
             sa.select(
-                [tr.c.reg_num, tr.c.timestamp, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email, tr.c.dietary, tr.c.disability, tr.c.name_badge, tr.c.title, tr.c.first_mdc, tr.c.mjf_lunch, tr.c.is_lion],
-                whereclause=sa.and_(tr.c.reg_num.in_(self.reg_nums), tr.c.cancellation_timestamp == None),
+                [tr.c.timestamp, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email, tr.c.dietary, tr.c.disability, tr.c.name_badge, tr.c.title, tr.c.first_mdc, tr.c.mjf_lunch, tr.c.is_lion, tr.c.id],
+                whereclause=sa.and_(tr.c.reg_num == reg_num, tr.c.cancellation_timestamp == None),
             )
         ).fetchall()
         registrees = []
         for r in res:
             vals = r[:-1]
             if r.is_lion:
-                details = self.engine.execute(sa.select([tc.c.club, tc.c.district], tc.c.reg_num == r.reg_num)).fetchone()
+                details = self.engine.execute(sa.select([tc.c.club, tc.c.district], tc.c.registree_id == r.id)).fetchone()
                 cls = LionRegistree
             else:
-                details = self.engine.execute(sa.select([tpp.c.quantity], tpp.c.reg_num == r.reg_num)).fetchone()
+                details = self.engine.execute(sa.select([tpp.c.quantity], tpp.c.registree_id == r.id)).fetchone()
                 if not details:
                     details = (0,)
                 cls = NonLionRegistree
             registrees.append(cls(*(vals + details[:])))
 
-        return RegistreeSet(events, payments, extras, registrees)
+        return RegistreeSet(reg_num, events, payments, extras, registrees)
 
     def get_all_registrees(self, reg_nums=None):
         tr = self.tables["registree"]
