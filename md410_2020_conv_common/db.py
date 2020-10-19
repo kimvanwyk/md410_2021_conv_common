@@ -44,6 +44,7 @@ class RegistreeSet(object):
     def __attrs_post_init__(self):
         self.total_owed = self.events.cost + self.extras.cost
         self.paid_in_full = sum(p.amount for p in self.payments) >= self.total_owed
+        
 
 @attr.s
 class Events(object):
@@ -181,6 +182,37 @@ class DB(object):
             registrees.append(cls(*(vals + details[:])))
 
         return RegistreeSet(reg_num, events, payments, extras, registrees)
+
+    def save_registree_set(self, registree_set):
+        tr = self.tables["registree"]
+        tfr = self.tables["full_reg"]
+        tpr = self.tables["partial_reg"]
+        tpi = self.tables["pins"]
+        tpp = self.tables["partner_program"]
+        tc = self.tables["club"]
+        for t in (tr, tc, tpp, tfr, tpr, tpi):
+            self.engine.execute(t.delete(t.c.reg_num == registree_set.reg_num))
+
+        for registree in registree_set.registrees:
+            d = {"is_lion": registree.lion, 
+                 "reg_num": registree_set.reg_num,
+                 "first_names": registree.first_names, 
+                 "last_name": registree.last_name,
+                 "cell": registree.cell,
+                 "email": registree.email,
+                 "dietary": registree.dietary,
+                 "disability": registree.disability,
+                 "name_badge": registree.name_badge,
+                 "title": registree.title,
+                 "first_mdc": registree.first_mdc,
+                 "mjf_lunch": registree.mjf_lunch,
+                 "timestamp": registree.timestamp
+            }
+            res = self.engine.execute(tr.insert(d).returning(tr.c.id))
+            if registree.lion:
+                self.engine.execute(tc.insert({"reg_num": registree_set.reg_num, "club": registree.club, "district": registree.district, "registree_id": res.scalar()}))
+            else:
+                self.engine.execute(tpp.insert({"reg_num": registree_set.reg_num, "quantity": registree.partner_program, "registree_id": res.scalar()}))
 
     def get_all_registrees(self, reg_nums=None):
         tr = self.tables["registree"]
