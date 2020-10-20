@@ -56,6 +56,8 @@ class Events(object):
 
     def __attrs_post_init__(self):
         self.cost = sum(self.get_costs_per_item().values())
+        self.includes_full = self.full > 0
+        self.includes_partial = any(getattr(self, attr) > 0 for attr in ("banquet", "convention", "theme"))
 
     def get_costs_per_item(self):
         return {attr: cost * getattr(self, attr) for (attr,cost) in self.costs.items()}
@@ -208,11 +210,22 @@ class DB(object):
                  "mjf_lunch": registree.mjf_lunch,
                  "timestamp": registree.timestamp
             }
-            res = self.engine.execute(tr.insert(d).returning(tr.c.id))
+            registree_id = self.engine.execute(tr.insert(d).returning(tr.c.id)).scalar()
             if registree.lion:
-                self.engine.execute(tc.insert({"reg_num": registree_set.reg_num, "club": registree.club, "district": registree.district, "registree_id": res.scalar()}))
+                self.engine.execute(tc.insert({"reg_num": registree_set.reg_num, "club": registree.club, "district": registree.district, "registree_id": registree_id}))
             else:
-                self.engine.execute(tpp.insert({"reg_num": registree_set.reg_num, "quantity": registree.partner_program, "registree_id": res.scalar()}))
+                self.engine.execute(tpp.insert({"reg_num": registree_set.reg_num, "quantity": registree.partner_program, "registree_id": registree_id}))
+
+        if registree_set.extras.pins:
+            self.engine.execute(tpi.insert({"reg_num": registree_set.reg_num, "quantity": registree_set.extras.pins}))
+
+        if registree_set.events.includes_full:
+            self.engine.execute(tfr.insert({"reg_num": registree_set.reg_num, "quantity": registree_set.events.full}))
+
+        if registree_set.events.includes_partial:
+            self.engine.execute(tpr.insert({"reg_num": registree_set.reg_num, "banquet_quantity": registree_set.events.banquet, "convention_quantity": registree_set.events.convention, "theme_quantity": registree_set.events.theme}))
+
+# -----------------------------------------------------------------------
 
     def get_all_registrees(self, reg_nums=None):
         tr = self.tables["registree"]
