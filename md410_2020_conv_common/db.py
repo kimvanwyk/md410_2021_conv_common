@@ -172,7 +172,7 @@ class DB(object):
         ).fetchall()
         registrees = []
         for r in res:
-            vals = r[:-1]
+            vals = r[:-2]
             if r.is_lion:
                 details = self.engine.execute(sa.select([tc.c.club, tc.c.district], tc.c.registree_id == r.id)).fetchone()
                 cls = LionRegistree
