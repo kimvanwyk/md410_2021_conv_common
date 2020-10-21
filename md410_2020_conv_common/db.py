@@ -25,14 +25,6 @@ TABLES = {
     "2020_payment": ("md410_2020_conv", "payment"),
 }
 
-COSTS = {
-    "full_regs": 1285,
-    "banquets": 500,
-    "conventions": 400,
-    "themes": 450,
-    "pins": 55,
-}
-
 @attr.s
 class RegistreeSet(object):
     reg_num = attr.ib()
