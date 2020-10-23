@@ -29,14 +29,14 @@ TABLES = {
 class RegistreeSet(object):
     reg_num = attr.ib()
     events = attr.ib()
-    payments = attr.ib()
     extras = attr.ib()
     registrees = attr.ib()
+    payments = attr.ib(default=[])
 
     def __attrs_post_init__(self):
-        self.total_owed = self.events.cost + self.extras.cost
-        self.paid_in_full = sum(p.amount for p in self.payments) >= self.total_owed
-        
+        self.cost = self.events.cost + self.extras.cost
+        self.paid_in_full = sum(p.amount for p in self.payments) >= self.cost
+        self.registree_names = ";".join(reg.name for reg in self.registrees)
 
 @attr.s
 class Events(object):
@@ -92,6 +92,7 @@ class Registree(object):
             self.title = None
         t = f"{self.title} " if self.title else ""
         self.titled_first_names = f"{t}{self.first_names.strip()}"
+        self.name = f"{self.first_names} {self.last_name}"
 
         self.auto_name_badge = False
         if not self.name_badge:
@@ -184,6 +185,7 @@ class DB(object):
         tpi = self.tables["pins"]
         tpp = self.tables["partner_program"]
         tc = self.tables["club"]
+        tp = self.tables["payment"]
         for t in (tr, tc, tpp, tfr, tpr, tpi):
             self.engine.execute(t.delete(t.c.reg_num == registree_set.reg_num))
 
@@ -207,7 +209,11 @@ class DB(object):
                 self.engine.execute(tc.insert({"reg_num": registree_set.reg_num, "club": registree.club, "district": registree.district, "registree_id": registree_id}))
             else:
                 self.engine.execute(tpp.insert({"reg_num": registree_set.reg_num, "quantity": registree.partner_program, "registree_id": registree_id}))
-
+    
+        payments = [{"reg_num": registree_set.reg_num, "amount": payment.amount, "timestamp": payment.timestamp} for payment in registree_set.payments]
+        if payments:
+            self.engine.execute(tp.insert(payments))
+            
         if registree_set.extras.pins:
             self.engine.execute(tpi.insert({"reg_num": registree_set.reg_num, "quantity": registree_set.extras.pins}))
 
