@@ -35,8 +35,11 @@ class RegistreeSet(object):
     payments = attr.ib(default=[])
 
     def __attrs_post_init__(self):
+        self.reg_num = int(self.reg_num)
         self.cost = self.events.cost + self.extras.cost
-        self.paid_in_full = sum(p.amount for p in self.payments) >= self.cost
+        self.paid = Decimal(sum(p.amount for p in self.payments))
+        self.paid_in_full = self.paid >= self.cost
+        self.still_owed = self.cost - self.paid 
         self.registree_names = ";".join(reg.name for reg in self.registrees)
 
 
@@ -51,7 +54,7 @@ class Events(object):
     )
 
     def __attrs_post_init__(self):
-        self.cost = sum(self.get_costs_per_item().values())
+        self.cost = Decimal(sum(self.get_costs_per_item().values()))
         self.includes_full = self.full > 0
         self.includes_partial = any(
             getattr(self, attr) > 0 for attr in ("banquet", "convention", "theme")
@@ -73,7 +76,7 @@ class Extras(object):
     costs = attr.ib(default={"pins": 55})
 
     def __attrs_post_init__(self):
-        self.cost = sum(self.get_costs_per_item().values())
+        self.cost = Decimal(sum(self.get_costs_per_item().values()))
 
     def get_costs_per_item(self):
         return {attr: cost * getattr(self, attr) for (attr, cost) in self.costs.items()}
@@ -251,7 +254,7 @@ class DB(object):
                 cls = NonLionRegistree
             registrees.append(cls(*(vals + details[:])))
 
-        return RegistreeSet(reg_num, events, payments, extras, registrees)
+        return RegistreeSet(reg_num, events, extras, registrees, payments)
 
     def save_registree_set(self, registree_set):
         tr = self.tables["registree"]
