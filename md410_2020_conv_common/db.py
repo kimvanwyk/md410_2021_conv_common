@@ -37,11 +37,13 @@ class RegistreeSet(object):
     def __attrs_post_init__(self):
         self.reg_num = int(self.reg_num)
         self.cost = self.events.cost + self.extras.cost
+        self.process_payments()
+        self.registree_names = ";".join(reg.name for reg in self.registrees)
+
+    def process_payments(self):
         self.paid = Decimal(sum(p.amount for p in self.payments))
         self.paid_in_full = self.paid >= self.cost
         self.still_owed = self.cost - self.paid 
-        self.registree_names = ";".join(reg.name for reg in self.registrees)
-
 
 @attr.s
 class Events(object):
