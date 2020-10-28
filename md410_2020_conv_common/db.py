@@ -38,7 +38,8 @@ class RegistreeSet(object):
         self.reg_num = int(self.reg_num)
         self.cost = self.events.cost + self.extras.cost
         self.process_payments()
-        self.registree_names = ";".join(reg.name for reg in self.registrees)
+        self.registree_names = " and ".join(reg.name for reg in self.registrees)
+        self.deposit = self.registrees[0].deposit * len(self.registrees)
 
     def process_payments(self):
         self.paid = Decimal(sum(p.amount for p in self.payments))
@@ -106,7 +107,8 @@ class Registree(object):
             self.title = None
         t = f"{self.title} " if self.title else ""
         self.titled_first_names = f"{t}{self.first_names.strip()}"
-        self.name = f"{self.first_names} {self.last_name}"
+        self.name = f"{self.titled_first_names} {self.last_name}"
+        self.deposit = 300
 
         self.auto_name_badge = False
         if not self.name_badge:

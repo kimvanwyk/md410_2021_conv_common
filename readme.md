@@ -1,6 +1,6 @@
 # Introduction
 
-Common libraries for applications related to the [Lions Multiple District 410 2020 Convention](https://www.lionsconvention2020.co.za/).
+Common libraries for applications related to the 2020 and [2021 Lions Multiple District 410 Conventions](https://www.lionsconvention2021.co.za/).
 
 # Associated Applications
 
