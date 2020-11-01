@@ -1,12 +1,17 @@
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal, getcontext
-
+import os
 
 import attr
 import sqlalchemy as sa
 
-import os
+# permit use in both a package and standalone for testing purposes.
+# See https://stackoverflow.com/questions/14132789/relative-imports-for-the-billionth-time/14132912#14132912
+if __package__:
+    from . import constants
+else:
+    import constants
 
 getcontext().prec = 20
 TWOPLACES = Decimal(10) ** -2
@@ -43,8 +48,9 @@ class RegistreeSet(object):
         self.registree_first_names = " and ".join(
             reg.titled_first_names for reg in self.registrees
         )
-        self.deposit = self.registrees[0].deposit * len(self.registrees)
-        self.full_payment_deadline = datetime(year=2021, month=3, day=31)
+        self.deposit = constants.DEPOSIT * len(self.registrees)
+        self.full_payment_deadline = constants.FULL_PAYMENT_DEADLINE
+        self.cancellation_deadline = constants.CANCELLATION_DEADLINE
 
     def process_payments(self):
         self.paid = Decimal(sum(p.amount for p in self.payments))
@@ -59,7 +65,12 @@ class Events(object):
     convention = attr.ib()
     theme = attr.ib()
     costs = attr.ib(
-        default={"full": 1285, "banquet": 500, "convention": 400, "theme": 450}
+        default={
+            "full": constants.COST_EVENT_FULL,
+            "banquet": constants.COST_EVENT_BANQUET,
+            "convention": constants.COST_EVENT_CONVENTION,
+            "theme": constants.COST_EVENT_THEME,
+        }
     )
 
     def __attrs_post_init__(self):
@@ -82,7 +93,7 @@ class Payment(object):
 @attr.s
 class Extras(object):
     pins = attr.ib()
-    costs = attr.ib(default={"pins": 55})
+    costs = attr.ib(default={"pins": constants.COST_EXTRAS_PIN})
 
     def __attrs_post_init__(self):
         self.cost = Decimal(sum(self.get_costs_per_item().values()))
@@ -114,7 +125,6 @@ class Registree(object):
         t = f"{self.title} " if self.title else ""
         self.titled_first_names = f"{t}{self.first_names.strip()}"
         self.name = f"{self.titled_first_names} {self.last_name}"
-        self.deposit = 300
 
         self.auto_name_badge = False
         if not self.name_badge:
