@@ -36,15 +36,21 @@ class RegistreeSet(object):
 
     def __attrs_post_init__(self):
         self.reg_num = int(self.reg_num)
+        self.reg_num_text = f"MDC{self.reg_num:03}"
         self.cost = self.events.cost + self.extras.cost
         self.process_payments()
         self.registree_names = " and ".join(reg.name for reg in self.registrees)
+        self.registree_first_names = " and ".join(
+            reg.titled_first_names for reg in self.registrees
+        )
         self.deposit = self.registrees[0].deposit * len(self.registrees)
+        self.full_payment_deadline = datetime(year=2021, month=3, day=31)
 
     def process_payments(self):
         self.paid = Decimal(sum(p.amount for p in self.payments))
         self.paid_in_full = self.paid >= self.cost
-        self.still_owed = self.cost - self.paid 
+        self.still_owed = self.cost - self.paid
+
 
 @attr.s
 class Events(object):
@@ -137,8 +143,7 @@ class NonLionRegistree(Registree):
 
 @attr.s
 class DB(object):
-    """ Handle postgres database interaction
-    """
+    """Handle postgres database interaction"""
 
     host = attr.ib(default=os.getenv("PGHOST", "localhost"))
     port = attr.ib(default=os.getenv("PGPORT", 5432))
