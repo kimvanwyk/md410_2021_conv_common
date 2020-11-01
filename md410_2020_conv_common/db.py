@@ -25,24 +25,71 @@ TABLES = {
     "2020_payment": ("md410_2020_conv", "payment"),
 }
 
-COSTS = {
-    "full_regs": 1285,
-    "banquets": 500,
-    "conventions": 400,
-    "themes": 450,
-    "pins": 55,
-}
 
 @attr.s
 class RegistreeSet(object):
-    registration = attr.ib()
-    payment = attr.ib()
-    first = attr.ib()
-    second = attr.ib(default=None)
+    reg_num = attr.ib()
+    events = attr.ib()
+    extras = attr.ib()
+    registrees = attr.ib()
+    payments = attr.ib(default=[])
+
+    def __attrs_post_init__(self):
+        self.reg_num = int(self.reg_num)
+        self.cost = self.events.cost + self.extras.cost
+        self.process_payments()
+        self.registree_names = " and ".join(reg.name for reg in self.registrees)
+        self.deposit = self.registrees[0].deposit * len(self.registrees)
+
+    def process_payments(self):
+        self.paid = Decimal(sum(p.amount for p in self.payments))
+        self.paid_in_full = self.paid >= self.cost
+        self.still_owed = self.cost - self.paid 
+
+@attr.s
+class Events(object):
+    full = attr.ib()
+    banquet = attr.ib()
+    convention = attr.ib()
+    theme = attr.ib()
+    costs = attr.ib(
+        default={"full": 1285, "banquet": 500, "convention": 400, "theme": 450}
+    )
+
+    def __attrs_post_init__(self):
+        self.cost = Decimal(sum(self.get_costs_per_item().values()))
+        self.includes_full = self.full > 0
+        self.includes_partial = any(
+            getattr(self, attr) > 0 for attr in ("banquet", "convention", "theme")
+        )
+
+    def get_costs_per_item(self):
+        return {attr: cost * getattr(self, attr) for (attr, cost) in self.costs.items()}
+
+
+@attr.s
+class Payment(object):
+    timestamp = attr.ib()
+    amount = attr.ib()
+
+
+@attr.s
+class Extras(object):
+    pins = attr.ib()
+    costs = attr.ib(default={"pins": 55})
+
+    def __attrs_post_init__(self):
+        self.cost = Decimal(sum(self.get_costs_per_item().values()))
+
+    def get_costs_per_item(self):
+        return {attr: cost * getattr(self, attr) for (attr, cost) in self.costs.items()}
+
+    def __bool__(self):
+        return bool(sum([getattr(self, attr) for attr in self.costs.keys()]))
+
 
 @attr.s
 class Registree(object):
-    reg_num = attr.ib()
     timestamp = attr.ib()
     first_names = attr.ib()
     last_name = attr.ib()
@@ -60,13 +107,14 @@ class Registree(object):
             self.title = None
         t = f"{self.title} " if self.title else ""
         self.titled_first_names = f"{t}{self.first_names.strip()}"
-        # owed = sum(v * getattr(self, k, 0) for (k, v) in COSTS.items())
-        # self.paid_in_full = self.payments >= owed
+        self.name = f"{self.titled_first_names} {self.last_name}"
+        self.deposit = 300
 
         self.auto_name_badge = False
         if not self.name_badge:
             self.name_badge = f"{self.first_names} {self.last_name}"
             self.auto_name_badge = True
+
 
 @attr.s
 class LionRegistree(Registree):
@@ -86,16 +134,6 @@ class NonLionRegistree(Registree):
         self.lion = False
         super().__attrs_post_init__()
 
-class Extras(object):
-    pins = attr.ib()
-
-    def __attrs_post_init__(self):
-        self.attrs = ("pins",)
-
-    def __bool__(self):
-        return bool(sum([getattr(self, attr) for attr in self.attrs]))
-
-
 
 @attr.s
 class DB(object):
@@ -110,7 +148,10 @@ class DB(object):
     debug = attr.ib(default=False)
 
     def __attrs_post_init__(self):
-        self.engine = sa.create_engine(f"postgresql+psycopg2://{self.user}:{self.password}@{self.host}:{self.port}/{self.dbname}", echo=self.debug,)
+        self.engine = sa.create_engine(
+            f"postgresql+psycopg2://{self.user}:{self.password}@{self.host}:{self.port}/{self.dbname}",
+            echo=self.debug,
+        )
         md = sa.MetaData()
         md.bind = self.engine
         self.engine.autocommit = True
@@ -120,29 +161,199 @@ class DB(object):
         self.reg_nums = []
 
     def get_registrees(self, reg_num):
-        self.set_reg_nums(reg_num)
         tr = self.tables["registree"]
         tc = self.tables["club"]
-        tp = self.tables["partner_program"]
+        tpy = self.tables["payment"]
+        tpp = self.tables["partner_program"]
+        tpi = self.tables["pins"]
+        tfr = self.tables["full_reg"]
+        tpr = self.tables["partial_reg"]
+
+        partials = [
+            sum(e)
+            for e in zip(
+                *[
+                    p[:]
+                    for p in self.engine.execute(
+                        sa.select(
+                            [
+                                tpr.c.banquet_quantity,
+                                tpr.c.convention_quantity,
+                                tpr.c.theme_quantity,
+                            ],
+                            tpr.c.reg_num == reg_num,
+                        )
+                    ).fetchall()
+                ]
+            )
+        ]
+        if not partials:
+            partials = [0, 0, 0]
+        events = Events(
+            *(
+                [
+                    sum(
+                        r[0]
+                        for r in self.engine.execute(
+                            sa.select([tfr.c.quantity], tfr.c.reg_num == reg_num)
+                        ).fetchall()
+                    )
+                ]
+                + partials
+            )
+        )
+
+        payments = [
+            Payment(p[0], p[1])
+            for p in self.engine.execute(
+                sa.select([tpy.c.timestamp, tpy.c.amount], tpy.c.reg_num == reg_num)
+            ).fetchall()
+        ]
+
+        extras = Extras(
+            pins=sum(
+                p[0]
+                for p in self.engine.execute(
+                    sa.select([tpi.c.quantity], tpi.c.reg_num == reg_num)
+                ).fetchall()
+            )
+        )
+
         res = self.engine.execute(
             sa.select(
-                [tr.c.reg_num, tr.c.timestamp, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email, tr.c.dietary, tr.c.disability, tr.c.name_badge, tr.c.title, tr.c.first_mdc, tr.c.mjf_lunch, tr.c.is_lion],
-                whereclause=sa.and_(tr.c.reg_num.in_(self.reg_nums), tr.c.cancellation_timestamp == None),
+                [
+                    tr.c.timestamp,
+                    tr.c.first_names,
+                    tr.c.last_name,
+                    tr.c.cell,
+                    tr.c.email,
+                    tr.c.dietary,
+                    tr.c.disability,
+                    tr.c.name_badge,
+                    tr.c.title,
+                    tr.c.first_mdc,
+                    tr.c.mjf_lunch,
+                    tr.c.is_lion,
+                    tr.c.id,
+                ],
+                whereclause=sa.and_(
+                    tr.c.reg_num == reg_num, tr.c.cancellation_timestamp == None
+                ),
             )
         ).fetchall()
         registrees = []
         for r in res:
-            vals = r[:-1]
+            vals = r[:-2]
             if r.is_lion:
-                details = self.engine.execute(sa.select([tc.c.club, tc.c.district], tc.c.reg_num == r.reg_num)).fetchone()
+                details = self.engine.execute(
+                    sa.select([tc.c.club, tc.c.district], tc.c.registree_id == r.id)
+                ).fetchone()
                 cls = LionRegistree
             else:
-                details = self.engine.execute(sa.select([tp.c.quantity], tp.c.reg_num == r.reg_num)).fetchone()
+                details = self.engine.execute(
+                    sa.select([tpp.c.quantity], tpp.c.registree_id == r.id)
+                ).fetchone()
                 if not details:
                     details = (0,)
                 cls = NonLionRegistree
             registrees.append(cls(*(vals + details[:])))
-        return registrees
+
+        return RegistreeSet(reg_num, events, extras, registrees, payments)
+
+    def save_registree_set(self, registree_set):
+        tr = self.tables["registree"]
+        tfr = self.tables["full_reg"]
+        tpr = self.tables["partial_reg"]
+        tpi = self.tables["pins"]
+        tpp = self.tables["partner_program"]
+        tc = self.tables["club"]
+        tp = self.tables["payment"]
+        for t in (tr, tc, tpp, tfr, tpr, tpi):
+            self.engine.execute(t.delete(t.c.reg_num == registree_set.reg_num))
+
+        for registree in registree_set.registrees:
+            d = {
+                "is_lion": registree.lion,
+                "reg_num": registree_set.reg_num,
+                "first_names": registree.first_names,
+                "last_name": registree.last_name,
+                "cell": registree.cell,
+                "email": registree.email,
+                "dietary": registree.dietary,
+                "disability": registree.disability,
+                "name_badge": registree.name_badge,
+                "title": registree.title,
+                "first_mdc": registree.first_mdc,
+                "mjf_lunch": registree.mjf_lunch,
+                "timestamp": registree.timestamp,
+            }
+            registree_id = self.engine.execute(tr.insert(d).returning(tr.c.id)).scalar()
+            if registree.lion:
+                self.engine.execute(
+                    tc.insert(
+                        {
+                            "reg_num": registree_set.reg_num,
+                            "club": registree.club,
+                            "district": registree.district,
+                            "registree_id": registree_id,
+                        }
+                    )
+                )
+            else:
+                self.engine.execute(
+                    tpp.insert(
+                        {
+                            "reg_num": registree_set.reg_num,
+                            "quantity": registree.partner_program,
+                            "registree_id": registree_id,
+                        }
+                    )
+                )
+
+        payments = [
+            {
+                "reg_num": registree_set.reg_num,
+                "amount": payment.amount,
+                "timestamp": payment.timestamp,
+            }
+            for payment in registree_set.payments
+        ]
+        if payments:
+            self.engine.execute(tp.insert(payments))
+
+        if registree_set.extras.pins:
+            self.engine.execute(
+                tpi.insert(
+                    {
+                        "reg_num": registree_set.reg_num,
+                        "quantity": registree_set.extras.pins,
+                    }
+                )
+            )
+
+        if registree_set.events.includes_full:
+            self.engine.execute(
+                tfr.insert(
+                    {
+                        "reg_num": registree_set.reg_num,
+                        "quantity": registree_set.events.full,
+                    }
+                )
+            )
+
+        if registree_set.events.includes_partial:
+            self.engine.execute(
+                tpr.insert(
+                    {
+                        "reg_num": registree_set.reg_num,
+                        "banquet_quantity": registree_set.events.banquet,
+                        "convention_quantity": registree_set.events.convention,
+                        "theme_quantity": registree_set.events.theme,
+                    }
+                )
+            )
+
+    # -----------------------------------------------------------------------
 
     def get_all_registrees(self, reg_nums=None):
         tr = self.tables["registree"]
@@ -152,10 +363,21 @@ class DB(object):
         tpy = self.tables["payment"]
         tc = self.tables["club"]
 
-        query = sa.select([tr.c.reg_num, tr.c.first_names, tr.c.last_name, tr.c.cell, tr.c.email, tr.c.is_lion,])
+        query = sa.select(
+            [
+                tr.c.reg_num,
+                tr.c.first_names,
+                tr.c.last_name,
+                tr.c.cell,
+                tr.c.email,
+                tr.c.is_lion,
+            ]
+        )
 
         if reg_nums:
-            query = query.where(sa.and_(tr.c.reg_num.in_(reg_nums), tr.c.cancellation_timestamp == None))
+            query = query.where(
+                sa.and_(tr.c.reg_num.in_(reg_nums), tr.c.cancellation_timestamp == None)
+            )
         else:
             query = query.where(tr.c.cancellation_timestamp == None)
         res = self.engine.execute(query).fetchall()
@@ -164,15 +386,21 @@ class DB(object):
             d = dict(r)
             if r.is_lion:
                 try:
-                    d["club"] = self.engine.execute(tc.select(whereclause=tc.c.reg_num == d["reg_num"])).fetchone()[1]
+                    d["club"] = self.engine.execute(
+                        tc.select(whereclause=tc.c.reg_num == d["reg_num"])
+                    ).fetchone()[1]
                 except Exception:
                     pass
             try:
-                d["full_regs"] = self.engine.execute(tfr.select(whereclause=tfr.c.reg_num == d["reg_num"])).fetchone()[1]
+                d["full_regs"] = self.engine.execute(
+                    tfr.select(whereclause=tfr.c.reg_num == d["reg_num"])
+                ).fetchone()[1]
             except Exception:
                 pass
             try:
-                partial = self.engine.execute(tpr.select(whereclause=tpr.c.reg_num == d["reg_num"])).fetchone()
+                partial = self.engine.execute(
+                    tpr.select(whereclause=tpr.c.reg_num == d["reg_num"])
+                ).fetchone()
                 d["banquets"] = partial["banquet_quantity"]
                 d["conventions"] = partial["convention_quantity"]
                 d["themes"] = partial["theme_quantity"]
@@ -180,12 +408,19 @@ class DB(object):
                 pass
 
             try:
-                d["pins"] = self.engine.execute(tpi.select(whereclause=tpi.c.reg_num == d["reg_num"])).fetchone()[1]
+                d["pins"] = self.engine.execute(
+                    tpi.select(whereclause=tpi.c.reg_num == d["reg_num"])
+                ).fetchone()[1]
             except Exception:
                 pass
 
             try:
-                d["payments"] = sum(p.amount for p in self.engine.execute(tpy.select(whereclause=tpy.c.reg_num == d["reg_num"])).fetchall())
+                d["payments"] = sum(
+                    p.amount
+                    for p in self.engine.execute(
+                        tpy.select(whereclause=tpy.c.reg_num == d["reg_num"])
+                    ).fetchall()
+                )
             except Exception:
                 pass
             registrees.append(Registree(**d))
@@ -194,7 +429,10 @@ class DB(object):
     def set_reg_nums(self, reg_num):
         tp = self.tables["registree_pair"]
         res = self.engine.execute(
-            sa.select([tp.c.first_reg_num, tp.c.second_reg_num], sa.or_(tp.c.first_reg_num == reg_num, tp.c.second_reg_num == reg_num),)
+            sa.select(
+                [tp.c.first_reg_num, tp.c.second_reg_num],
+                sa.or_(tp.c.first_reg_num == reg_num, tp.c.second_reg_num == reg_num),
+            )
         ).fetchone()
         self.reg_nums = [res[0], res[1]] if res else [reg_num]
 
@@ -240,7 +478,11 @@ class DB(object):
         self.engine.execute(tr.insert(vals))
 
         if registree.is_lion:
-            vals = {"reg_num": registree.reg_num, "club": registree.club, "district": registree.district}
+            vals = {
+                "reg_num": registree.reg_num,
+                "club": registree.club,
+                "district": registree.district,
+            }
             self.engine.execute(tc.insert(vals))
         else:
             vals = {"reg_num": registree.reg_num, "quantity": 1}
@@ -276,7 +518,9 @@ class DB(object):
         self.engine.execute(trp.delete(trp.c.first_reg_num.in_(reg_nums)))
 
         dt = datetime.now()
-        self.engine.execute(tr.update(tr.c.reg_num.in_(reg_nums), {"cancellation_timestamp": dt}))
+        self.engine.execute(
+            tr.update(tr.c.reg_num.in_(reg_nums), {"cancellation_timestamp": dt})
+        )
 
     def pair_registrees(self, first_reg_num, second_reg_num):
         tp = self.tables["registree_pair"]
@@ -292,8 +536,16 @@ class DB(object):
 
         res = self.engine.execute(
             sa.select(
-                [tr.c.reg_num, tr.c.first_names, tr.c.last_name, tp.c.amount, tr.c.cancellation_timestamp],
-                sa.and_(tr.c.reg_num == tp.c.reg_num, tr.c.cancellation_timestamp == None),
+                [
+                    tr.c.reg_num,
+                    tr.c.first_names,
+                    tr.c.last_name,
+                    tp.c.amount,
+                    tr.c.cancellation_timestamp,
+                ],
+                sa.and_(
+                    tr.c.reg_num == tp.c.reg_num, tr.c.cancellation_timestamp == None
+                ),
             ).order_by(tr.c.reg_num)
         ).fetchall()
         totals = defaultdict(float)
