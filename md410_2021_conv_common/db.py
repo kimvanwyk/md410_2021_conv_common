@@ -49,8 +49,6 @@ class RegistreeSet(object):
             reg.titled_first_names for reg in self.registrees
         )
         self.deposit = constants.DEPOSIT * len(self.registrees)
-        self.full_payment_deadline = constants.FULL_PAYMENT_DEADLINE
-        self.cancellation_deadline = constants.CANCELLATION_DEADLINE
 
     def process_payments(self):
         self.paid = Decimal(sum(p.amount for p in self.payments))
