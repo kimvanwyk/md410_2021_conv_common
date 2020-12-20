@@ -48,6 +48,11 @@ class RegistreeSet(object):
         self.registree_first_names = " and ".join(
             reg.titled_first_names for reg in self.registrees
         )
+        file_name_names = "_".join(
+            f"{reg.first_names[0].lower()}_{reg.last_name.replace(' ','_').lower()}"
+            for reg in self.registrees
+        )
+        self.file_name = f"{self.reg_num:003}_{file_name_names}"
         self.deposit = constants.DEPOSIT * len(self.registrees)
 
     def process_payments(self):
