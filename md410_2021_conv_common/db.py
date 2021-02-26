@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 from datetime import datetime
 from decimal import Decimal, getcontext
 import os
@@ -64,14 +64,16 @@ class RegistreeSet(object):
 @attr.s
 class Events(object):
     full = attr.ib()
+    district_convention = attr.ib()
     banquet = attr.ib()
-    convention = attr.ib()
+    md_convention = attr.ib()
     theme = attr.ib()
     costs = attr.ib(
         default={
             "full": constants.COST_EVENT_FULL,
+            "district_convention": constants.COST_EVENT_DISTRICT_CONVENTION,
             "banquet": constants.COST_EVENT_BANQUET,
-            "convention": constants.COST_EVENT_CONVENTION,
+            "md_convention": constants.COST_EVENT_MD_CONVENTION,
             "theme": constants.COST_EVENT_THEME,
         }
     )
@@ -80,7 +82,8 @@ class Events(object):
         self.cost = Decimal(sum(self.get_costs_per_item().values()))
         self.includes_full = self.full > 0
         self.includes_partial = any(
-            getattr(self, attr) > 0 for attr in ("banquet", "convention", "theme")
+            getattr(self, attr) > 0
+            for attr in ("district_convention", "banquet", "md_convention", "theme")
         )
 
     def get_costs_per_item(self):
@@ -121,6 +124,7 @@ class Registree(object):
     title = attr.ib()
     first_mdc = attr.ib()
     mjf_lunch = attr.ib()
+    pdg_dinner = attr.ib()
 
     def __attrs_post_init__(self):
         if not self.title:
@@ -195,8 +199,9 @@ class DB(object):
                     for p in self.engine.execute(
                         sa.select(
                             [
+                                tpr.c.district_convention_quantity,
                                 tpr.c.banquet_quantity,
-                                tpr.c.convention_quantity,
+                                tpr.c.md_convention_quantity,
                                 tpr.c.theme_quantity,
                             ],
                             tpr.c.reg_num == reg_num,
@@ -206,7 +211,7 @@ class DB(object):
             )
         ]
         if not partials:
-            partials = [0, 0, 0]
+            partials = [0, 0, 0, 0]
         events = Events(
             *(
                 [
@@ -251,6 +256,7 @@ class DB(object):
                     tr.c.title,
                     tr.c.first_mdc,
                     tr.c.mjf_lunch,
+                    tr.c.pdg_dinner,
                     tr.c.is_lion,
                     tr.c.id,
                 ],
@@ -303,6 +309,7 @@ class DB(object):
                 "title": registree.title,
                 "first_mdc": registree.first_mdc,
                 "mjf_lunch": registree.mjf_lunch,
+                "pdg_dinner": registree.pdg_dinner,
                 "timestamp": registree.timestamp,
             }
             registree_id = self.engine.execute(tr.insert(d).returning(tr.c.id)).scalar()
@@ -364,8 +371,9 @@ class DB(object):
                 tpr.insert(
                     {
                         "reg_num": registree_set.reg_num,
+                        "district_convention_quantity": registree_set.events.district_convention,
                         "banquet_quantity": registree_set.events.banquet,
-                        "convention_quantity": registree_set.events.convention,
+                        "md_convention_quantity": registree_set.events.md_convention,
                         "theme_quantity": registree_set.events.theme,
                     }
                 )
@@ -419,8 +427,9 @@ class DB(object):
                 partial = self.engine.execute(
                     tpr.select(whereclause=tpr.c.reg_num == d["reg_num"])
                 ).fetchone()
+                d["district_conventions"] = partial["district_convention_quantity"]
                 d["banquets"] = partial["banquet_quantity"]
-                d["conventions"] = partial["convention_quantity"]
+                d["md_conventions"] = partial["md_convention_quantity"]
                 d["themes"] = partial["theme_quantity"]
             except Exception:
                 pass
@@ -485,7 +494,7 @@ class DB(object):
                 "name_badge",
                 "first_mdc",
                 "mjf_lunch",
-                # "pdg_breakfast",
+                "pdg_dinner",
                 "is_lion",
                 # "sharks_board",
                 # "golf",
@@ -513,8 +522,9 @@ class DB(object):
         if registree.partial_reg:
             vals = {
                 "reg_num": registree.reg_num,
+                "district_convention_quantity": registree.partial_reg.district_convention,
                 "banquet_quantity": registree.partial_reg.banquet,
-                "convention_quantity": registree.partial_reg.convention,
+                "md_convention_quantity": registree.partial_reg.md_convention,
                 "theme_quantity": registree.partial_reg.theme,
             }
             self.engine.execute(tpr.insert(vals))
@@ -573,3 +583,52 @@ class DB(object):
             names[r.reg_num] = f"{r.last_name}, {r.first_names}"
 
         return {r: (name, totals[r]) for (r, name) in names.items()}
+
+    def get_2020_payee_emails(self):
+        REGISTREE = namedtuple("Registree", ("name", "total", "email"))
+        tr = self.tables["2020_registree"]
+        trp = self.tables["2020_registree_pair"]
+        tp = self.tables["2020_payment"]
+
+        pairs = [
+            [int(i) for i in p]
+            for p in self.engine.execute(
+                sa.select(
+                    [
+                        trp.c.first_reg_num,
+                        trp.c.second_reg_num,
+                    ],
+                )
+            ).fetchall()
+        ]
+
+        registrees = self.engine.execute(
+            sa.select(
+                [
+                    tr.c.reg_num,
+                    tr.c.first_names,
+                    tr.c.email,
+                    tp.c.amount,
+                ],
+                sa.and_(
+                    tr.c.reg_num == tp.c.reg_num,
+                    tr.c.cancellation_timestamp == None,
+                ),
+            )
+        ).fetchall()
+
+        totals = defaultdict(float)
+        names = {}
+        emails = {}
+        for r in registrees:
+            totals[r.reg_num] += r.amount
+            names[r.reg_num] = r.first_names
+            emails[r.reg_num] = r.email
+
+        return (
+            pairs,
+            {
+                int(r): REGISTREE(name, totals[r], emails[r])
+                for (r, name) in names.items()
+            },
+        )
